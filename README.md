@@ -1,103 +1,67 @@
-﻿## CLIP-ReID: Exploiting Vision-Language Model for Image Re-Identification without Concrete Text Labels [[pdf]](https://arxiv.org/pdf/2211.13977.pdf)
- [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/clip-reid-exploiting-vision-language-model/person-re-identification-on-msmt17)](https://paperswithcode.com/sota/person-re-identification-on-msmt17?p=clip-reid-exploiting-vision-language-model)
+~~**CLIP-ReID: Exploiting Vision-Language Model for Image Re-Identification without Concrete Text Labels [[pdf]](https://arxiv.org/pdf/2211.13977.pdf)**~~
+#  *CLIP-ReID 论文复现报告*
+***
+## 一、实验目的 
 
-### Pipeline
+ 复现CLIP-ReID 论文复现报告
+### 1.1 复现结果
+复现ReID领域经典论文：CLIP-ReID，在 Market-1501 数据集上，使用 RN50（ResNet50） 作为视觉编码器，经 120 个 epoch 训练，最终测试结果如下：
+| 指标 | 结果 |
+| :--- | :--- |
+| **mAP** | **88.2%** |
+| **Rank-1** | **94.9%** |
+| **Rank-5** | 98.3% |
+| **Rank-10** | 98.8% |
+### 1.2 结论
+  **成功复现原论文中的 CNN 基线结果，性能与论文报告一致。**
+***
+## 二、实验环境
+### 2.1 硬件配置
 
-![framework](fig/method.png)
+| 项目 | 型号/参数 |
+|------|-----------|
+|  笔记本型号 | 华硕天选6 Pro 锐龙版 |
+| GPU | NVIDIA GeForce RTX 5060 Laptop  |
 
-### Installation
 
-```
-conda create -n clipreid python=3.8
-conda activate clipreid
-conda install pytorch==1.8.0 torchvision==0.9.0 torchaudio==0.8.0 cudatoolkit=10.2 -c pytorch
-pip install yacs
-pip install timm
-pip install scikit-image
-pip install tqdm
-pip install ftfy
-pip install regex
-```
 
-### Prepare Dataset
+### 2.2 环境配置 
 
-Download the datasets ([Market-1501](https://drive.google.com/file/d/0B8-rUzbwVRk0c054eEozWG9COHM/view), [MSMT17](https://arxiv.org/abs/1711.08565), [DukeMTMC-reID](https://arxiv.org/abs/1609.01775), [Occluded-Duke](https://github.com/lightas/Occluded-DukeMTMC-Dataset), [VehicleID](https://www.pkuml.org/resources/pku-vehicleid.html), [VeRi-776](https://github.com/JDAI-CV/VeRidataset)), and then unzip them to `your_dataset_dir`.
+*   **关键软件版本**:
+    *   Python: 3.10
+    *   PyTorch: 2.7.1+cu128
+    *   CUDA Runtime: 12.8
+    *   其它依赖: yacs, timm, scikit-image,tqdm,ftfy,regex 等
+    ### 2.3 环境构建说明
 
-### Training
+- 创建独立 Conda 环境，Python 版本选用 3.10，以保证与 PyTorch 2.7+ 的兼容性[^1]；
+- RTX 5060 的 sm_120 计算能力要求 PyTorch 版本不低于 2.7，故安装 `torch==2.7.1+cu128`；
+- Windows 系统默认编码为 GBK，与 YAML 配置文件的 UTF-8 编码冲突。每次启动训练前通过 `set PYTHONUTF8=1` 强制 Python 以 UTF-8 模式运行，确保配置文件正确读取。
+***
+## 三、训练过程与问题及其解决方案
 
-For example, if you want to run CNN-based CLIP-ReID-baseline for the Market-1501, you need to modify the bottom of configs/person/cnn_base.yml to
+### 3.1 复现过程中的关键问题与解决方案
+*   **UTF-8 编码冲突**: Windows 下 GBK 默认编码导致读取 YAML 文件报错。通过设置环境变量 `PYTHONUTF8=1` 解决[^2]。
+*   **电脑硬件兼容性冲突**: 原始`PyTorch 2.0.1`以及`Python 3.8`环境不支持 `sm_120`，`RTX 5060 (sm_120) `要求 `PyTorch >= 2.7`。于是创建了`Python 3.10`环境并安装了`torch==2.7.1+cu128`。
+*   **PyTorch 2.x API 变更**: 
+    *   `torch.load` 默认 `weights_only=True` 导致加载 CLIP 模型失败，改为 `weights_only=False`，使得`torch.load`能正常加载TorchScript格式的CLIP模型。
+    *   `ScriptModule` 对象不支持字典操作，修改 `model/clip/model.py` 增加类型转换。
+    *   中文用户名路径导致模型缓存失败，通过设置环境变量重定向缓存目录到纯英文路径解决。
+### 3.2 代码修改清单
 
-```
-DATASETS:
-   NAMES: ('market1501')
-   ROOT_DIR: ('your_dataset_dir')
-OUTPUT_DIR: 'your_output_dir'
-```
+为兼容 PyTorch 2.7 及 Windows 中文路径，对原始代码作出以下修改：
 
-then run 
+1. **`model/make_model.py`**  
+   - `torch.load` 添加 `weights_only=False`，解决默认参数变更后 TorchScript 模型加载失败问题；  
+   - 设置环境变量 `TORCH_HOME` 和 `CLIP_CACHE_DIR` 为纯英文路径 `C:\tmp`，规避中文用户名在底层 C 库中引发的路径编码错误。
+2. **`model/clip/model.py`**  
+   - `build_model` 函数入口增加类型判断：若 `state_dict` 为 `torch.jit.ScriptModule` 则先转为普通字典，避免后续字典操作触发 `NotImplementedError`。
+   ### 3.3 训练过程简述
 
-```
-CUDA_VISIBLE_DEVICES=0 python train.py --config_file configs/person/cnn_base.yml
-```
+- 总训练时长 3.5 小时左右；  
+- 损失值从 epoch 1 的 16.041 下降至最终的 2.181 ；  
+- 学习率衰减后模型进一步收敛，最终权重保存为 `RN50_120.pth`[^3]，完整训练日志见 `train_log.txt`。
 
-if you want to run ViT-based CLIP-ReID for MSMT17, you need to modify the bottom of configs/person/vit_clipreid.yml to
-
-```
-DATASETS:
-   NAMES: ('msmt17')
-   ROOT_DIR: ('your_dataset_dir')
-OUTPUT_DIR: 'your_output_dir'
-```
-
-then run 
-
-```
-CUDA_VISIBLE_DEVICES=0 python train_clipreid.py --config_file configs/person/vit_clipreid.yml
-```
-
-if you want to run ViT-based CLIP-ReID+SIE+OLP for MSMT17, run:
-
-```
-CUDA_VISIBLE_DEVICES=0 python train_clipreid.py --config_file configs/person/vit_clipreid.yml  MODEL.SIE_CAMERA True MODEL.SIE_COE 1.0 MODEL.STRIDE_SIZE '[12, 12]'
-```
-
-### Evaluation
-
-For example, if you want to test ViT-based CLIP-ReID for MSMT17
-
-```
-CUDA_VISIBLE_DEVICES=0 python test_clipreid.py --config_file configs/person/vit_clipreid.yml TEST.WEIGHT 'your_trained_checkpoints_path/ViT-B-16_60.pth'
-```
-
-### Acknowledgement
-
-Codebase from [TransReID](https://github.com/damo-cv/TransReID), [CLIP](https://github.com/openai/CLIP), and [CoOp](https://github.com/KaiyangZhou/CoOp).
-
-The veri776 viewpoint label is from https://github.com/Zhongdao/VehicleReIDKeyPointData.
-
-### Trained models and test logs
-
-|       Datasets        |                            MSMT17                            |                            Market                            |                             Duke                             |                           Occ-Duke                           |                             VeRi                             |                          VehicleID                           |
-| :-------------------: | :----------------------------------------------------------: | :----------------------------------------------------------: | :----------------------------------------------------------: | :----------------------------------------------------------: | :----------------------------------------------------------: | :----------------------------------------------------------: |
-|     CNN-baseline      | [model](https://drive.google.com/file/d/1s-nZMp-LHG0h4dFwvyP_YNBLTijLcrb0/view?usp=share_link)\|[test](https://drive.google.com/file/d/18EQmBB1-GStmnNvaFNrVbKaaoLIW2Jyz/view?usp=share_link) | [model](https://drive.google.com/file/d/15E4K9eGXMlqOGE1RAgXQjF4MzrFobGim/view?usp=share_link)\|[test](https://drive.google.com/file/d/1CxzntZ8531NWmnp6AUrZh8GCWgunF2XA/view?usp=share_link) | [model](https://drive.google.com/file/d/1f9ZgJZSph7kV7xjhfBVIjFG0hwgeSsSy/view?usp=share_link)\|[test](https://drive.google.com/file/d/1I40OxzlONTZ0oX1CXcVPcDNtkTbq1YZF/view?usp=share_link) | [model](https://drive.google.com/file/d/1gdokL9QoldUOiaRUGJ1fS0BXEnHGM8MX/view?usp=share_link)\|[test](https://drive.google.com/file/d/1Kj1Eem9ZgEP9-1gCPDNuxGukdK_-UamA/view?usp=share_link) | [model](https://drive.google.com/file/d/1crKPNqQaf0WA9x7xW5MqCrOGxLlDy1ee/view?usp=share_link)\|[test](https://drive.google.com/file/d/1a-X8RPCurM1o5amRR2urEkIpYsQScNod/view?usp=share_link) | [model](https://drive.google.com/file/d/1pTd6ZFzTJINmZ-0eJWReHqTMEgg775Vw/view?usp=share_link)\|[test](https://drive.google.com/file/d/1BSIKWkbEoBd7JBlYg7aC_ZNeBZBU-70l/view?usp=share_link) |
-|     CNN-CLIP-ReID     | [model](https://drive.google.com/file/d/1VdlC1ld3NrQC5Jcx0hntXRb-UaR3tMtr/view?usp=share_link)\|[test](https://drive.google.com/file/d/1asywo90Va_XRL-AZ3tO4vZuzoAmnnCeJ/view?usp=share_link) | [model](https://drive.google.com/file/d/1sBqCr5LxKcO9J2V0IvLQPb0wzwVzIZUp/view?usp=share_link)\|[test](https://drive.google.com/file/d/1u2x5_c5iNYaQW6sL5SazP4NUMBnCNZb9/view?usp=share_link) | [model](https://drive.google.com/file/d/1XXycuux__uDd9WKwaTAQ4W1RjLqnUphq/view?usp=share_link)\|[test](https://drive.google.com/file/d/1sc12hq0YW3_BeGj6Z84v4r763i8hFyeT/view?usp=share_link) | [model](https://drive.google.com/file/d/1naz7QjzYlC2qe4SHxjxss4tP81KRCrMj/view?usp=share_link)\|[test](https://drive.google.com/file/d/1Y3Ccg6fnVwsyIYVyagZbk4QTLwABrGJ9/view?usp=share_link) | [model](https://drive.google.com/file/d/18s8NkQQwLOgLLpXZwaLed2L-L6ZYrXUN/view?usp=share_link)\|[test](https://drive.google.com/file/d/1K-S3YB7F46V86GB36P9Nv127TIRVbBBg/view?usp=share_link) | [model](https://drive.google.com/file/d/1iotObjA5EmVG2-wj7iUy8ZVD7y0XMMeQ/view?usp=share_link)\|[test](https://drive.google.com/file/d/1zWYyFplNcQC9X2qMueelSjkpLCO97DE8/view?usp=share_link) |
-|     ViT-baseline      | [model](https://drive.google.com/file/d/1I715ZWacRvEGLiju1bZ9xcmUhhFx0aN6/view?usp=share_link)\|[test](https://drive.google.com/file/d/1ClJz0lokY1fBZKn1TcFZZEd9O-YupRtl/view?usp=share_link) | [model](https://drive.google.com/file/d/1XKUcP4LEpWr4Ah6sVdXNveUo4bAsVyjt/view?usp=share_link)\|[test](https://drive.google.com/file/d/18xkr609oK_TdOzVZviZYMq48ZVANO5S6/view?usp=share_link) | [model](https://drive.google.com/file/d/13qSSyi87Bkj3Qq-UKy3646vuIyIaE7Mt/view?usp=share_link)\|[test](https://drive.google.com/file/d/1IrelYMW2kunsO45ghwzGWvxjPoC1mihN/view?usp=share_link) | [model](https://drive.google.com/file/d/1bjgAbg9DE0niEQ9PTyywt8asjpCOKhfX/view?usp=share_link)\|[test](https://drive.google.com/file/d/119nMZOGMjvqHBlBNC3viNSto31QSN4sT/view?usp=share_link) | [model](https://drive.google.com/file/d/1LeqWNuTGM87JpbhR6tMK2u91ckwlYI1T/view?usp=share_link)\|[test](https://drive.google.com/file/d/1lwkBUGyhsvmu3NajSY80oC4cnRsQyXtR/view?usp=share_link) | [model](https://drive.google.com/file/d/1Nxowc7pvvNPG6O-TV4aRaL5BgdzJ1Dl9/view?usp=share_link)\|[test](https://drive.google.com/file/d/1sj7W-kr376XU5oKVFOGu1Bi_NsO1cDjn/view?usp=share_link) |
-|     ViT-CLIP-ReID     | [model](https://drive.google.com/file/d/1BVaZo93kOksYLjFNH3Gf7JxIbPlWSkcO/view?usp=share_link)\|[test](https://drive.google.com/file/d/1_b1WOkyWP6PI4z1Owwtt5Un1YmdQFbqy/view?usp=share_link) | [model](https://drive.google.com/file/d/1GnyAVeNOg3Yug1KBBWMKKbT2x43O5Ch7/view?usp=share_link)\|[test](https://drive.google.com/file/d/1SKtpls1rtcuC-Xul-uVhEOtFKf8a1zDt/view?usp=share_link) | [model](https://drive.google.com/file/d/1ldjSkj-7pXAWmx8on5x0EftlCaolU4dY/view?usp=share_link)\|[test](https://drive.google.com/file/d/1pUID2PgmWkdfUmAZthXvOsI4F6ptx6az/view?usp=share_link) | [model](https://drive.google.com/file/d/1FduvrwOWurHtYyockakn2hBrbGH0qJzH/view?usp=share_link)\|[test](https://drive.google.com/file/d/1qizsyQCMtA2QUc1kCN0lg7UEaEvktgrj/view?usp=share_link) | [model](https://drive.google.com/file/d/1RyfHdOBI2pan_wIGSim5-l6cM4S2WN8e/view?usp=share_link)\|[test](https://drive.google.com/file/d/1RhiqztoInkjBwDGAcL2437YA7qTwzEsk/view?usp=share_link) | [model](https://drive.google.com/file/d/168BLegHHxNqatW5wx1YyL2REaThWoof5/view?usp=share_link)\|[test](https://drive.google.com/file/d/110l_8I2LQ3OfZP1xElF2Jl4lRvvhweYf/view?usp=share_link) |
-| ViT-CLIP-ReID-SIE-OLP | [model](https://drive.google.com/file/d/1sPZbWTv2_stXBGutjHMvE87pAbSAgVaz/view?usp=share_link)\|[test](https://drive.google.com/file/d/1t-G143aD4qH6FWQP60EdjuJvYFvjAoXP/view?usp=share_link) | [model](https://drive.google.com/file/d/1K32xrosw0gPrxYCWXER81mhWObEW5-d4/view?usp=share_link)\|[test](https://drive.google.com/file/d/1UqE0zCTSaob4NMgKN_wjBEdtJJPSb3hW/view?usp=share_link) | [model](https://drive.google.com/file/d/1zkHLrLy3z9lP0cR2MVQtr4ujoC6eQLKP/view?usp=share_link)\|[test](https://drive.google.com/file/d/1cZ9d3gyQkOlWNPCmjpiaEKA7NiyIk9jY/view?usp=share_link) | [model](https://drive.google.com/file/d/18RU-3_QUr2fehUjW_RfeIllbCDUaZZvP/view?usp=share_link)\|[test](https://drive.google.com/file/d/1XI2rNMJcHHxUbHrIDL9WXasErJ3zutpD/view?usp=share_link) | [model](https://drive.google.com/file/d/1vb-mMGp7q_aqAB1U_uAGsHZ1U9HViOgE/view?usp=share_link)\|[test](https://drive.google.com/file/d/16Yu3yp3HKnIZHr-AkrilqJvTtraxQO5b/view?usp=share_link) | [model](https://drive.google.com/file/d/19B7wHJ29VByFHiF9OJhI5C6q0V68NOKn/view?usp=share_link)\|[test](https://drive.google.com/file/d/1o6oGAsjrmwPnefQmnd72MDgn-Ie36XV5/view?usp=share_link) |
-
-Note that all results listed above are without re-ranking.
-
-With re-ranking, ViT-CLIP-ReID-SIE-OLP achieves 86.7% mAP and  91.1% R1 on MSMT17.
-### Citation
-
-If you use this code for your research, please cite
-
-```
-@article{li2022clip,
-  title={CLIP-ReID: Exploiting Vision-Language Model for Image Re-Identification without Concrete Text Labels},
-  author={Li, Siyuan and Sun, Li and Li, Qingli},
-  journal={arXiv preprint arXiv:2211.13977},
-  year={2022}
-}
-```
-
+[^1]:原实验中的PyTorch及Python不兼容。详见3.1。
+[^2]:需要每次都重新输入设定。
+[^3]:该文件过大，没有上传。
